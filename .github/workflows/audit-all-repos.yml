@@ -1,4 +1,4 @@
-name: Auditar y Mejorar todos mis repos (con logs)
+name: Auditar y Mejorar todos mis repos (v2)
 
 on:
   schedule:
@@ -36,7 +36,7 @@ jobs:
           SECRET_TOKEN: ${{ secrets.Yave }}
         shell: bash
 
-      - name: Auditar y corregir cada repositorio (con logs)
+      - name: Auditar y corregir cada repositorio
         run: |
           python -c "
           import os, json, subprocess, sys, time
@@ -52,7 +52,6 @@ jobs:
 
           if not repos:
               print('ℹ️  No hay repositorios para auditar.')
-              # Generar un artefacto vacío para que no falle
               with open('reporte_final.json', 'w') as f:
                   json.dump({'meta': {'total':0, 'errors':0}}, f)
               sys.exit(0)
@@ -67,9 +66,14 @@ jobs:
                   print(f'❌ Error clonando {repo}: {e}')
                   continue
 
-              # Ejecutar auditoría
+              # EJECUTAR AUDITORÍA CON RUTA ABSOLUTA
+              repo_path = os.path.abspath(f'./repos/{repo}')
+              print(f'🔍 Auditing {repo} en {repo_path}')
               try:
-                  result = subprocess.run(['python3', 'auditor_completo.py', f'./repos/{repo}'], capture_output=True, text=True, timeout=120)
+                  result = subprocess.run(
+                      ['python3', 'auditor_completo.py', repo_path],
+                      capture_output=True, text=True, timeout=180
+                  )
                   print(f'📄 Salida de auditoría para {repo}:')
                   print(result.stdout)
                   if result.stderr:
@@ -78,18 +82,22 @@ jobs:
                   print(f'❌ Error auditoría en {repo}: {e}')
                   continue
 
-              # Leer reporte
-              try:
-                  with open('reporte_final.json', 'r') as f:
+              # Leer reporte (se genera en el directorio actual del workflow)
+              report_path = 'reporte_final.json'
+              if os.path.exists(report_path):
+                  with open(report_path, 'r') as f:
                       import json as jsonlib
                       data = jsonlib.load(f)
-                      if data.get('meta', {}).get('errors', 0) > 0:
-                          print(f'🔍 Se encontraron {data["meta"]["errors"]} errores en {repo}')
+                      total_files = data.get('meta', {}).get('total', 0)
+                      errors = data.get('meta', {}).get('errors', 0)
+                      print(f'📊 {repo}: {total_files} archivos, {errors} errores')
+                      if errors > 0:
+                          print(f'🔍 Se encontraron {errors} errores en {repo}')
                           # Aplicar auto-fix
-                          fix_result = subprocess.run(['python3', 'auto_fix.py', f'./repos/{repo}'], capture_output=True, text=True)
+                          fix_result = subprocess.run(['python3', 'auto_fix.py', repo_path], capture_output=True, text=True)
                           print(f'📄 Salida de auto-fix: {fix_result.stdout}')
                           # Verificar cambios
-                          os.chdir(f'./repos/{repo}')
+                          os.chdir(repo_path)
                           status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
                           if status.stdout:
                               subprocess.run(['git', 'config', 'user.name', 'auditor-agent'], check=True)
@@ -97,31 +105,22 @@ jobs:
                               subprocess.run(['git', 'add', '.'], check=True)
                               subprocess.run(['git', 'commit', '-m', 'Auto-fix: px→dp, Left/Right→Start/End'], check=True)
                               subprocess.run(['git', 'push', 'origin', f'HEAD:fix/auto-audit'], check=False)
-                              # Crear PR con gh
                               subprocess.run(['gh', 'pr', 'create', '--title', 'Auto-fix de auditoría', '--body', 'Correcciones automáticas generadas.', '--base', 'main', '--head', 'fix/auto-audit'], check=False)
                           os.chdir('../..')
                       else:
                           print(f'✅ {repo} sin errores.')
-              except Exception as e:
-                  print(f'❌ Error procesando {repo}: {e}')
+              else:
+                  print(f'⚠️ No se generó reporte para {repo}')
           "
         env:
           SECRET_TOKEN: ${{ secrets.Yave }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
 
-      - name: Subir artefacto (SIEMPRE, aunque no haya errores)
+      - name: Subir artefacto (SIEMPRE)
         uses: actions/upload-artifact@v7
         with:
           name: report
           path: reporte_final.json
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Subir artefacto con logs (para depurar)
-        uses: actions/upload-artifact@v7
-        with:
-          name: audit-logs
-          path: repos/*/auditor_completo.log
-          if-no-files-found: ignore
-          retention-days: 3
