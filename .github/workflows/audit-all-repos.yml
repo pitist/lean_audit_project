@@ -66,7 +66,6 @@ jobs:
                   print(f'❌ Error clonando {repo}: {e}')
                   continue
 
-              # EJECUTAR AUDITORÍA CON RUTA ABSOLUTA
               repo_path = os.path.abspath(f'./repos/{repo}')
               print(f'🔍 Auditing {repo} en {repo_path}')
               try:
@@ -74,7 +73,6 @@ jobs:
                       ['python3', 'auditor_completo.py', repo_path],
                       capture_output=True, text=True, timeout=180
                   )
-                  print(f'📄 Salida de auditoría para {repo}:')
                   print(result.stdout)
                   if result.stderr:
                       print(f'⚠️  Errores: {result.stderr}')
@@ -82,7 +80,6 @@ jobs:
                   print(f'❌ Error auditoría en {repo}: {e}')
                   continue
 
-              # Leer reporte (se genera en el directorio actual del workflow)
               report_path = 'reporte_final.json'
               if os.path.exists(report_path):
                   with open(report_path, 'r') as f:
@@ -93,10 +90,8 @@ jobs:
                       print(f'📊 {repo}: {total_files} archivos, {errors} errores')
                       if errors > 0:
                           print(f'🔍 Se encontraron {errors} errores en {repo}')
-                          # Aplicar auto-fix
                           fix_result = subprocess.run(['python3', 'auto_fix.py', repo_path], capture_output=True, text=True)
-                          print(f'📄 Salida de auto-fix: {fix_result.stdout}')
-                          # Verificar cambios
+                          print(fix_result.stdout)
                           os.chdir(repo_path)
                           status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
                           if status.stdout:
@@ -117,7 +112,7 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
 
-      - name: Subir artefacto (SIEMPRE)
+      - name: Subir artefacto
         uses: actions/upload-artifact@v7
         with:
           name: report
