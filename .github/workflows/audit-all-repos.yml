@@ -17,14 +17,13 @@ jobs:
         run: pip install PyGithub
 
       - name: Obtener lista de repositorios
-        id: list-repos
         run: |
           python -c "
           import os, json
           from github import Github, Auth
-          token = os.environ['GH_PERSONAL_TOKEN']
+          token = os.environ['SECRET_TOKEN']
           if not token:
-              print('❌ ERROR: GH_PERSONAL_TOKEN no configurado')
+              print('❌ ERROR: Secret $SECRET_NAME no configurado')
               exit(1)
           g = Github(auth=Auth.Token(token))
           user = g.get_user()
@@ -34,7 +33,7 @@ jobs:
           print(f'✅ Se encontraron {len(repos)} repositorios')
           "
         env:
-          GH_PERSONAL_TOKEN: ${{ secrets.GH_PERSONAL_TOKEN }}
+          SECRET_TOKEN: ${{ secrets.Yave }}
         shell: bash
 
       - name: Auditar y corregir cada repositorio
@@ -43,7 +42,7 @@ jobs:
           import os, json, subprocess, sys, time
           from pathlib import Path
 
-          token = os.environ['GH_PERSONAL_TOKEN']
+          token = os.environ['SECRET_TOKEN']
           if not token:
               print('❌ Token no disponible')
               sys.exit(1)
@@ -59,41 +58,33 @@ jobs:
               print(f'📁 Procesando {repo}...')
               repo_url = f'https://{token}@github.com/{os.environ["GITHUB_REPOSITORY_OWNER"]}/{repo}.git'
               try:
-                  # Clonar
                   Path(f'./repos/{repo}').mkdir(parents=True, exist_ok=True)
                   subprocess.run(['git', 'clone', repo_url, f'./repos/{repo}'], check=True, capture_output=True)
               except Exception as e:
                   print(f'❌ Error clonando {repo}: {e}')
                   continue
 
-              # Ejecutar auditoría
               try:
                   subprocess.run(['python3', 'auditor_completo.py', f'./repos/{repo}'], capture_output=True, text=True, timeout=120)
               except Exception as e:
                   print(f'❌ Error auditoría en {repo}: {e}')
                   continue
 
-              # Leer reporte
               try:
                   with open('reporte_final.json', 'r') as f:
                       import json as jsonlib
                       data = jsonlib.load(f)
                       if data.get('meta', {}).get('errors', 0) > 0:
                           print(f'🔍 Se encontraron {data["meta"]["errors"]} errores en {repo}')
-                          # Aplicar auto-fix
                           subprocess.run(['python3', 'auto_fix.py', f'./repos/{repo}'], check=False, capture_output=True)
-                          # Verificar cambios
                           os.chdir(f'./repos/{repo}')
                           status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
                           if status.stdout:
-                              # Configurar git user
                               subprocess.run(['git', 'config', 'user.name', 'auditor-agent'], check=True)
                               subprocess.run(['git', 'config', 'user.email', 'auditor@bot.com'], check=True)
                               subprocess.run(['git', 'add', '.'], check=True)
                               subprocess.run(['git', 'commit', '-m', 'Auto-fix: px→dp, Left/Right→Start/End'], check=True)
-                              # Crear PR
                               subprocess.run(['git', 'push', 'origin', f'HEAD:fix/auto-audit'], check=False)
-                              # gh CLI para PR (requiere autenticación)
                               subprocess.run(['gh', 'pr', 'create', '--title', 'Auto-fix de auditoría', '--body', 'Correcciones automáticas generadas.', '--base', 'main', '--head', 'fix/auto-audit'], check=False)
                           os.chdir('../..')
                       else:
@@ -102,7 +93,7 @@ jobs:
                   print(f'❌ Error procesando {repo}: {e}')
           "
         env:
-          GH_PERSONAL_TOKEN: ${{ secrets.GH_PERSONAL_TOKEN }}
+          SECRET_TOKEN: ${{ secrets.Yave }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
 
