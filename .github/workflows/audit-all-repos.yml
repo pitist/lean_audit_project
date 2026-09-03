@@ -23,7 +23,7 @@ jobs:
           from github import Github, Auth
           token = os.environ['SECRET_TOKEN']
           if not token:
-              print('❌ ERROR: Secret $SECRET_NAME no configurado')
+              print('❌ ERROR: Secret Yave no configurado')
               exit(1)
           g = Github(auth=Auth.Token(token))
           user = g.get_user()
