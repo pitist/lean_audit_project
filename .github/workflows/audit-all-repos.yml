@@ -1,4 +1,4 @@
-name: Auditar y Mejorar todos mis repos
+name: Auditar y Mejorar todos mis repos (con logs)
 
 on:
   schedule:
@@ -36,7 +36,7 @@ jobs:
           SECRET_TOKEN: ${{ secrets.Yave }}
         shell: bash
 
-      - name: Auditar y corregir cada repositorio
+      - name: Auditar y corregir cada repositorio (con logs)
         run: |
           python -c "
           import os, json, subprocess, sys, time
@@ -52,6 +52,9 @@ jobs:
 
           if not repos:
               print('ℹ️  No hay repositorios para auditar.')
+              # Generar un artefacto vacío para que no falle
+              with open('reporte_final.json', 'w') as f:
+                  json.dump({'meta': {'total':0, 'errors':0}}, f)
               sys.exit(0)
 
           for repo in repos:
@@ -64,19 +67,28 @@ jobs:
                   print(f'❌ Error clonando {repo}: {e}')
                   continue
 
+              # Ejecutar auditoría
               try:
-                  subprocess.run(['python3', 'auditor_completo.py', f'./repos/{repo}'], capture_output=True, text=True, timeout=120)
+                  result = subprocess.run(['python3', 'auditor_completo.py', f'./repos/{repo}'], capture_output=True, text=True, timeout=120)
+                  print(f'📄 Salida de auditoría para {repo}:')
+                  print(result.stdout)
+                  if result.stderr:
+                      print(f'⚠️  Errores: {result.stderr}')
               except Exception as e:
                   print(f'❌ Error auditoría en {repo}: {e}')
                   continue
 
+              # Leer reporte
               try:
                   with open('reporte_final.json', 'r') as f:
                       import json as jsonlib
                       data = jsonlib.load(f)
                       if data.get('meta', {}).get('errors', 0) > 0:
                           print(f'🔍 Se encontraron {data["meta"]["errors"]} errores en {repo}')
-                          subprocess.run(['python3', 'auto_fix.py', f'./repos/{repo}'], check=False, capture_output=True)
+                          # Aplicar auto-fix
+                          fix_result = subprocess.run(['python3', 'auto_fix.py', f'./repos/{repo}'], capture_output=True, text=True)
+                          print(f'📄 Salida de auto-fix: {fix_result.stdout}')
+                          # Verificar cambios
                           os.chdir(f'./repos/{repo}')
                           status = subprocess.run(['git', 'status', '--porcelain'], capture_output=True, text=True)
                           if status.stdout:
@@ -85,6 +97,7 @@ jobs:
                               subprocess.run(['git', 'add', '.'], check=True)
                               subprocess.run(['git', 'commit', '-m', 'Auto-fix: px→dp, Left/Right→Start/End'], check=True)
                               subprocess.run(['git', 'push', 'origin', f'HEAD:fix/auto-audit'], check=False)
+                              # Crear PR con gh
                               subprocess.run(['gh', 'pr', 'create', '--title', 'Auto-fix de auditoría', '--body', 'Correcciones automáticas generadas.', '--base', 'main', '--head', 'fix/auto-audit'], check=False)
                           os.chdir('../..')
                       else:
@@ -97,9 +110,18 @@ jobs:
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
         shell: bash
 
-      - name: Resumen final
-        run: |
-          echo "## 📊 Resumen de auditoría masiva" >> $GITHUB_STEP_SUMMARY
-          echo "Se han auditado todos los repositorios." >> $GITHUB_STEP_SUMMARY
-          echo "Los PRs se han creado automáticamente para los repos con violaciones." >> $GITHUB_STEP_SUMMARY
-          echo "✅ Workflow completado." >> $GITHUB_STEP_SUMMARY
+      - name: Subir artefacto (SIEMPRE, aunque no haya errores)
+        uses: actions/upload-artifact@v7
+        with:
+          name: report
+          path: reporte_final.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Subir artefacto con logs (para depurar)
+        uses: actions/upload-artifact@v7
+        with:
+          name: audit-logs
+          path: repos/*/auditor_completo.log
+          if-no-files-found: ignore
+          retention-days: 3
