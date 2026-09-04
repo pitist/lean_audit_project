@@ -1,0 +1,52 @@
+name: Rust Multi-modal Edge CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_and_test:
+    name: Compilación e Inferencia en la Frontera
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Clonar el repositorio
+      uses: actions/checkout@v4
+
+    - name: Instalar dependencias del sistema y Clang
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential pkg-config libssl-dev clang cmake libopenblas-dev
+
+    - name: Configurar la herramienta de Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache de dependencias de Cargo
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+    - name: Verificar el formato del código
+      run: cargo fmt --check
+
+    - name: Compilar la librería (Modo Optimizado/Release)
+      run: cargo build --release
+
+    - name: Ejecutar pruebas unitarias
+      run: cargo test --release
+
+    - name: Auditoría estática con Clippy
+      run: cargo clippy -- -D warnings
