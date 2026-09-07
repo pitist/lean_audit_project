@@ -1,0 +1,221 @@
+name: 0Aureo — Build y Verificación
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 0aureo-main
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Lean + Mathlib + Inventario
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---------------------------------------------------------------
+      # 1. Obtener el repositorio
+      # ---------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # 2. Instalar elan + Lean
+      # Usa lean-toolchain del propio proyecto
+      # ---------------------------------------------------------------
+      - name: Instalar elan
+        uses: leanprover/elan-action@v1
+        with:
+          lean-version: leanprover/lean4:v4.34.0-rc2
+
+      # ---------------------------------------------------------------
+      # 3. Comprobar versiones
+      # ---------------------------------------------------------------
+      - name: Diagnóstico Lean
+        run: |
+          echo "=========================================="
+          echo "0AUREO — DIAGNÓSTICO"
+          echo "=========================================="
+
+          echo "Lean:"
+          lean --version
+
+          echo
+          echo "Lake:"
+          lake --version
+
+          echo
+          echo "Toolchain:"
+          cat lean-toolchain
+
+          echo
+          echo "Estructura:"
+          find . -maxdepth 3 -type f | sort | head -300
+
+      # ---------------------------------------------------------------
+      # 4. Descargar dependencias Mathlib
+      # ---------------------------------------------------------------
+      - name: Preparar Mathlib
+        run: |
+          lake update
+
+      # ---------------------------------------------------------------
+      # 5. Comprobar proyecto Lean
+      # ---------------------------------------------------------------
+      - name: Build 0Aureo
+        run: |
+          echo "=========================================="
+          echo "0AUREO — BUILD"
+          echo "=========================================="
+
+          lake build Aureo
+
+      # ---------------------------------------------------------------
+      # 6. Buscar archivos Lean
+      # ---------------------------------------------------------------
+      - name: Inventario Lean
+        run: |
+          echo "=========================================="
+          echo "0AUREO — ARCHIVOS LEAN"
+          echo "=========================================="
+
+          find . \
+            -type f \
+            -name "*.lean" \
+            -not -path "./.git/*" \
+            -not -path "./.lake/*" \
+            | sort
+
+      # ---------------------------------------------------------------
+      # 7. Inventario TSV
+      # ---------------------------------------------------------------
+      - name: Inventario dataset
+        run: |
+          echo "=========================================="
+          echo "0AUREO — DATASET"
+          echo "=========================================="
+
+          TSV_COUNT=$(find dataset \
+            -type f \
+            -name "*.tsv" \
+            2>/dev/null | wc -l)
+
+          TSV_SIZE=$(find dataset \
+            -type f \
+            -name "*.tsv" \
+            -printf "%s\n" \
+            2>/dev/null |
+            awk '{sum += $1} END {printf "%.2f MB\n", sum/1024/1024}')
+
+          echo "TSV: $TSV_COUNT"
+          echo "Tamaño: $TSV_SIZE"
+
+      # ---------------------------------------------------------------
+      # 8. Estadísticas generales
+      # ---------------------------------------------------------------
+      - name: Estadísticas 0Aureo
+        run: |
+          echo "=========================================="
+          echo "0AUREO — ESTADÍSTICAS"
+          echo "=========================================="
+
+          echo "Archivos totales:"
+          find . \
+            -type f \
+            -not -path "./.git/*" \
+            -not -path "./.lake/*" \
+            | wc -l
+
+          echo
+          echo "Por extensión:"
+
+          find . \
+            -type f \
+            -not -path "./.git/*" \
+            -not -path "./.lake/*" \
+            | sed 's/.*\.//' \
+            | sort \
+            | uniq -c \
+            | sort -nr \
+            | head -30
+
+      # ---------------------------------------------------------------
+      # 9. Verificar archivos esenciales
+      # ---------------------------------------------------------------
+      - name: Comprobar estructura 0Aureo
+        run: |
+          echo "=========================================="
+          echo "0AUREO — ESTRUCTURA"
+          echo "=========================================="
+
+          test -f lakefile.lean
+          test -f lean-toolchain
+
+          if [ ! -d src ]; then
+            echo "ERROR: falta src/"
+            exit 1
+          fi
+
+          echo "lakefile.lean: OK"
+          echo "lean-toolchain: OK"
+          echo "src/: OK"
+
+          if [ -d dataset ]; then
+            echo "dataset/: OK"
+          else
+            echo "AVISO: dataset/ no existe"
+          fi
+
+          if [ -d index ]; then
+            echo "index/: OK"
+          else
+            echo "AVISO: index/ no existe"
+          fi
+
+      # ---------------------------------------------------------------
+      # 10. Guardar logs básicos como artefacto
+      # ---------------------------------------------------------------
+      - name: Generar diagnóstico
+        if: always()
+        run: |
+          mkdir -p diagnostics
+
+          {
+            echo "0AUREO DIAGNOSTIC"
+            echo "================="
+            echo
+            echo "Commit:"
+            git rev-parse HEAD
+            echo
+            echo "Branch:"
+            git branch --show-current
+            echo
+            echo "Lean:"
+            lean --version
+            echo
+            echo "Lake:"
+            lake --version
+            echo
+            echo "Lean files:"
+            find . \
+              -type f \
+              -name "*.lean" \
+              -not -path "./.git/*" \
+              -not -path "./.lake/*" \
+              | sort
+          } > diagnostics/build.txt
+
+      - name: Subir diagnóstico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 0aureo-diagnostics
+          path: diagnostics/
+          retention-days: 14
